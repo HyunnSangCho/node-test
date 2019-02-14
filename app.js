@@ -2,6 +2,9 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const fs = require('fs');
 const multer = require('multer');
+const db = require('./mysql_conn');
+const mysql = db.mysql;
+const conn = db.conn;
 
 const app = express();
 const port = 3500;
@@ -9,29 +12,32 @@ const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     var date = new Date();
     var getMonth = (month) => {
-      if(month+1<10) return "0"+(month+1);
-      else return month+1;
+      if (month + 1 < 10) return "0" + (month + 1);
+      else return month + 1;
     }
-    var folder = "uploads/book/"+String(date.getFullYear()).substr(2)+getMonth(date.getMonth())+"/";
-    console.log(folder);
-    if(!fs.existsSync(folder)) {
+    var folder = "uploads/book/" + String(date.getFullYear()).substr(2) + getMonth(date.getMonth()) + "/";
+    if (!fs.existsSync(folder)) {
       fs.mkdir(folder, (err) => {
-        if(!err) cb(null, folder);
+        if (!err) cb(null, folder);
       });
-    }
-    else cb(null, folder);
+    } else cb(null, folder);
   },
   filename: function (req, file, cb) {
     cb(null, Date.now() + '-' + file.originalname);
   }
 });
-var upload = multer({ storage: storage });
+var upload = multer({
+  storage,
+  fileFilter
+});
 
 app.locals.pretty = true;
 app.use('/', express.static('public'));
 app.use('/assets', express.static('assets'));
 app.use('/uploads', express.static('uploads'));
-app.use(bodyParser.urlencoded({extended:true}));
+app.use(bodyParser.urlencoded({
+  extended: true
+}));
 app.use(bodyParser.json());
 app.set('view engine', 'pug');
 app.set('views', './views');
@@ -41,23 +47,37 @@ app.get('/book/:id', getQuery);
 app.get('/book/:id/:mode', getQuery);
 app.post('/book/create', upload.single('upfile'), postQuery);
 
-function postQuery(req, res) {
+function postQuery(req, res, next) {
   var tit = req.body.title;
   var content = req.body.content;
   var str = "";
-  fs.readFile('./data/book.json', 'utf-8', function(err, data){
-    if(err) res.status(500).send("Internal Server Error");
+  fs.readFile('./data/book.json', 'utf-8', function (err, data) {
+    if (err) res.status(500).send("Internal Server Error");
     datas = JSON.parse(data);
     var id = datas.books[datas.books.length - 1].id + 1;
-    datas.books.push({tit, content, id});
+    datas.books.push({
+      tit,
+      content,
+      id
+    });
     str = JSON.stringify(datas);
+    var sql = "INSERT INTO books SET title=?, content=?, filename=?";
+    var params = [tit, content, 'hyunsang.jpg'];
+    conn.query(sql, params, (err, rows, field) => {
+      if (err) {
+        console.log(err);
+      } else {
+        console.log(rows);
+      }
+    });
+
     fs.writeFile('./data/book.json', str, (err) => {
-      if(err) res.status(500).send("Internal Server Error");
-      else res.redirect("/book/"+id);
-        //res.send(`<script>location.href="/book/${id}"</script>`);
-        //res.redirect("/book/"+id);
-        //res.writeHead(301, {Location: '/book/'+id});
-        //res.end();
+      if (err) res.status(500).send("Internal Server Error");
+      else res.redirect("/book/" + id);
+      //res.send(`<script>location.href="/book/${id}"</script>`);
+      //res.redirect("/book/"+id);
+      //res.writeHead(301, {Location: '/book/'+id});
+      //res.end();
     });
   });
 }
@@ -66,21 +86,21 @@ function postQuery(req, res) {
 function getQuery(req, res) {
   var params = req.params;
   var datas = null;
-  fs.readFile('./data/book.json', 'utf-8', function(err, data){
-    if(err) res.status(500).send("Internal Server Error");
+  fs.readFile('./data/book.json', 'utf-8', function (err, data) {
+    if (err) res.status(500).send("Internal Server Error");
     datas = JSON.parse(data);
-    var pugData = {pages: datas.books};
-    if(typeof params.id !== 'undefined') {
-      if(params.id == 'new') {
+    var pugData = {
+      pages: datas.books
+    };
+    if (typeof params.id !== 'undefined') {
+      if (params.id == 'new') {
         pugData.title = "신규 글 등록";
         res.render('wr', pugData);
-      }
-      else {
+      } else {
         pugData.title = "도서목록";
         res.render('li', pugData);
       }
-    }
-    else {
+    } else {
       res.send('');
     }
   });
@@ -127,6 +147,15 @@ app.get('/info', (req, res) => {
   </html>`;
   res.send(html);
 });
+
+// multer 확장자 체크
+function fileFilter(req, file, cb) {
+  var filename = file.originalname.split('.');
+  var ext = filename[filename.length - 1];
+  var allowExt = "jpg|gif|jpeg|png";
+  if (allowExt.includes(ext)) cb(null, true);
+  else cb(null, false);
+}
 
 //RESTful
 //app.get('/', (req, res) => res.send('Hello World!~~~~~~~'));
